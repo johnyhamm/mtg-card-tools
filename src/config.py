@@ -160,7 +160,7 @@ class CardProcessingConfig:
     
     # Field names for ManaBox data
     manabox_name_field: str = "Name"
-    manabox_set_field: str = "Set code"
+    manabox_set_field: str = "Set name"
     manabox_condition_field: str = "Condition"
     manabox_foil_field: str = "Foil"
     manabox_quantity_field: str = "Quantity"
