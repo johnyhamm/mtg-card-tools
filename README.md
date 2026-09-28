@@ -47,6 +47,27 @@ This is a work in progress. The accuracy of the output is not guaranteed, so ple
 python run_converter.py
 ```
 
+#### `manabox_to_tcgplayer.py` (exact matching by Scryfall ID)
+
+This converter matches every ManaBox card by its Scryfall ID instead of by name, using [MTGJSON](https://mtgjson.com)'s free card database and its TCGplayer SKU data. There's no fuzzy matching and nothing to confirm, and you don't need to download TCGplayer's catalog first.
+
+1. Export your collection from ManaBox as CSV and put it in this folder.
+2. Run:
+
+    ```bash
+    python manabox_to_tcgplayer.py
+    ```
+
+    The first run downloads MTGJSON's database (several hundred MB) into `mtgjson_data/`. Later runs reuse it; add `--refresh` after a new set comes out.
+3. Upload `tcgplayer_upload.csv` to TCGplayer. Rows that couldn't be matched go to `tcgplayer_not_found.csv` with the reason.
+
+Options:
+
+* `--prices your_tcgplayer_export.csv` fills in TCGplayer's market prices and product names for matched cards. Without it, the price is ManaBox's purchase price.
+* Pass the ManaBox file's path if it isn't the only ManaBox CSV in the folder.
+
+ManaBox grades like Cardmarket, so conditions are mapped as: Mint and Near Mint to Near Mint, Excellent to Lightly Played, Good and Light Played to Moderately Played, Played to Heavily Played, Poor to Damaged. Change `CONDITION_MAP` at the top of the script if you grade differently.
+
 #### `convert_manabox_to_tcgplayer.py` / `run_converter.py`
 
 This script converts a CSV export from Manabox to a TCGplayer-compatible format.
