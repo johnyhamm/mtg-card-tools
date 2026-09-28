@@ -77,7 +77,7 @@ def build_card_entry(
         return ""
     
     return {
-        "TCGplayer Id": overrides.get('tcgplayer_id', DEFAULT_TCGPLAYER_ID),
+        "TCGplayer Id": overrides.get('tcgplayer_id') or (ref_row or {}).get(config.ref_tcgplayer_id_field, DEFAULT_TCGPLAYER_ID),
         "Product Line": DEFAULT_PRODUCT_LINE,
         "Set Name": get_value('ref_set_name_field', overrides.get('set_name')),
         "Product Name": get_value('ref_product_name_field', overrides.get('product_name')),
