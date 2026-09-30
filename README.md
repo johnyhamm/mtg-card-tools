@@ -58,7 +58,7 @@ This converter matches every ManaBox card by its Scryfall ID instead of by name,
     python manabox_to_tcgplayer.py
     ```
 
-    The first run downloads MTGJSON's database (several hundred MB) into `mtgjson_data/`. Later runs reuse it; add `--refresh` after a new set comes out.
+    The first run downloads MTGJSON's card database and TCGplayer SKU file (several hundred MB) into `mtgjson_data/`. Later runs reuse it; add `--refresh` after a new set comes out.
 3. Upload `tcgplayer_upload.csv` to TCGplayer. Rows that couldn't be matched go to `tcgplayer_not_found.csv` with the reason.
 
 Options:

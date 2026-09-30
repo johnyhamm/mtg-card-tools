@@ -10,13 +10,14 @@ TCGplayer SKU data. No fuzzy matching and no confirmation prompts.
 Usage:
     python manabox_to_tcgplayer.py [manabox.csv] [--prices tcgplayer_export.csv]
 
-The MTGJSON database is downloaded to ./mtgjson_data on first run (several
+MTGJSON's data is downloaded to ./mtgjson_data on first run (several
 hundred MB) and reused afterwards; pass --refresh to download a newer copy.
 """
 
 import argparse
 import csv
 import gzip
+import json
 import shutil
 import sqlite3
 import sys
@@ -24,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 MTGJSON_URL = "https://mtgjson.com/api/v5/AllPrintings.sqlite.gz"
+SKUS_URL = "https://mtgjson.com/api/v5/TcgplayerSkus.json.gz"
 DEFAULT_DATA_DIR = Path("mtgjson_data")
 
 PRODUCT_LINE = "Magic"
@@ -71,34 +73,132 @@ NOT_FOUND_FIELDS = [
 # MTGJSON DATA
 # =============================================================================
 
-def ensure_database(data_dir: Path, refresh: bool) -> Path:
-    """Download and unpack AllPrintings.sqlite unless a copy already exists."""
-    db_path = data_dir / "AllPrintings.sqlite"
-    if db_path.exists() and not refresh:
-        return db_path
-
-    data_dir.mkdir(parents=True, exist_ok=True)
-    gz_path = data_dir / "AllPrintings.sqlite.gz"
-    print(f"Downloading {MTGJSON_URL} (this can take a few minutes)...")
-    request = urllib.request.Request(MTGJSON_URL, headers={"User-Agent": "mtg-card-tools"})
+def _download_gz(url: str, dest: Path):
+    """Download a .gz file and unpack it to dest."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    gz_path = dest.with_name(dest.name + ".gz")
+    print(f"Downloading {url} (this can take a few minutes)...")
+    request = urllib.request.Request(url, headers={"User-Agent": "mtg-card-tools"})
     with urllib.request.urlopen(request) as response, open(gz_path, "wb") as out:
         shutil.copyfileobj(response, out)
 
     print("Unpacking...")
-    tmp_path = db_path.with_suffix(".sqlite.tmp")
+    tmp_path = dest.with_name(dest.name + ".tmp")
     with gzip.open(gz_path, "rb") as src, open(tmp_path, "wb") as out:
         shutil.copyfileobj(src, out)
-    tmp_path.replace(db_path)
+    tmp_path.replace(dest)
     gz_path.unlink()
+
+
+def ensure_database(data_dir: Path, refresh: bool) -> Path:
+    """Download AllPrintings.sqlite unless a copy already exists."""
+    db_path = data_dir / "AllPrintings.sqlite"
+    if refresh or not db_path.exists():
+        _download_gz(MTGJSON_URL, db_path)
     return db_path
 
 
-def _columns(conn, table):
-    return {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
+def _iter_sku_file(path: Path):
+    """Yield (uuid, skus) from TcgplayerSkus.json without loading it all into memory."""
+    decoder = json.JSONDecoder()
+    with open(path, encoding="utf-8") as f:
+        buf, pos, eof = "", 0, False
+
+        def more():
+            nonlocal buf, pos, eof
+            chunk = f.read(1 << 20)
+            eof = not chunk
+            buf = buf[pos:] + chunk
+            pos = 0
+
+        def skip(chars):
+            nonlocal pos
+            while True:
+                while pos < len(buf) and buf[pos] in chars:
+                    pos += 1
+                if pos < len(buf) or eof:
+                    return
+                more()
+
+        def value():
+            nonlocal pos
+            while True:
+                try:
+                    obj, pos = decoder.raw_decode(buf, pos)
+                    return obj
+                except json.JSONDecodeError:
+                    if eof:
+                        raise
+                    more()
+
+        def expect(char):
+            nonlocal pos
+            skip(" \t\r\n")
+            if pos >= len(buf) or buf[pos] != char:
+                raise ValueError(f"Unexpected content in {path.name} near position {pos}")
+            pos += 1
+
+        more()
+        expect("{")
+        while True:
+            skip(" \t\r\n,")
+            if pos < len(buf) and buf[pos] == "}":
+                return
+            key = value()
+            expect(":")
+            skip(" \t\r\n")
+            if key != "data":
+                value()
+                continue
+            expect("{")
+            while True:
+                skip(" \t\r\n,")
+                if pos < len(buf) and buf[pos] == "}":
+                    pos += 1
+                    break
+                uuid = value()
+                expect(":")
+                skip(" \t\r\n")
+                yield uuid, value()
 
 
-def _require(conn, table, needed):
-    cols = _columns(conn, table)
+def ensure_sku_database(data_dir: Path, refresh: bool) -> Path:
+    """Build a small SQLite table from MTGJSON's TcgplayerSkus.json, once."""
+    sku_db = data_dir / "TcgplayerSkus.sqlite"
+    if sku_db.exists() and not refresh:
+        return sku_db
+
+    json_path = data_dir / "TcgplayerSkus.json"
+    _download_gz(SKUS_URL, json_path)
+    print("Indexing TCGplayer SKUs...")
+    tmp_db = sku_db.with_name(sku_db.name + ".tmp")
+    tmp_db.unlink(missing_ok=True)
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "CREATE TABLE tcgplayerSkus (uuid TEXT, skuId TEXT, condition TEXT, "
+        "language TEXT, printing TEXT, finish TEXT, productId TEXT)"
+    )
+    rows = (
+        (uuid, str(sku.get("skuId", "")), sku.get("condition"), sku.get("language"),
+         sku.get("printing"), sku.get("finish"), str(sku.get("productId", "")))
+        for uuid, skus in _iter_sku_file(json_path)
+        for sku in skus
+    )
+    conn.executemany("INSERT INTO tcgplayerSkus VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+    conn.execute("CREATE INDEX idx_skus_uuid ON tcgplayerSkus (uuid)")
+    conn.commit()
+    conn.close()
+    tmp_db.replace(sku_db)
+    json_path.unlink()
+    return sku_db
+
+
+def _columns(conn, table, schema="main"):
+    return {row[1] for row in conn.execute(f'PRAGMA {schema}.table_info("{table}")')}
+
+
+def _require(conn, table, needed, schema="main"):
+    cols = _columns(conn, table, schema)
     if not cols:
         sys.exit(f"MTGJSON database has no '{table}' table. Try again with --refresh.")
     missing = [c for c in needed if c not in cols]
@@ -107,17 +207,25 @@ def _require(conn, table, needed):
 
 
 class CardDatabase:
-    """Lookups against MTGJSON's AllPrintings SQLite database."""
+    """Lookups against MTGJSON's AllPrintings database and TCGplayer SKU data."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, data_dir: Path, refresh: bool):
+        db_path = ensure_database(data_dir, refresh)
         self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         self.conn.row_factory = sqlite3.Row
         _require(self.conn, "cardIdentifiers", ["uuid", "scryfallId"])
         _require(self.conn, "cards", ["uuid", "name", "number", "rarity", "setCode"])
         _require(self.conn, "sets", ["code", "name"])
-        _require(self.conn, "tcgplayerSkus",
-                 ["uuid", "skuId", "condition", "language", "printing"])
-        self.has_finish = "finish" in _columns(self.conn, "tcgplayerSkus")
+
+        # Some AllPrintings builds include the SKUs; otherwise use MTGJSON's separate SKU file
+        self.sku_table = "main.tcgplayerSkus"
+        if not _columns(self.conn, "tcgplayerSkus"):
+            sku_db = ensure_sku_database(data_dir, refresh)
+            self.conn.execute("ATTACH DATABASE ? AS skus", (f"file:{sku_db}?mode=ro",))
+            self.sku_table = "skus.tcgplayerSkus"
+        schema, table = self.sku_table.split(".")
+        _require(self.conn, table, ["uuid", "skuId", "condition", "language", "printing"], schema)
+        self.has_finish = "finish" in _columns(self.conn, table, schema)
 
     def cards_for_scryfall_id(self, scryfall_id):
         """All MTGJSON printings sharing a Scryfall ID (e.g. a card and its etched version)."""
@@ -136,7 +244,7 @@ class CardDatabase:
         finish = "finish" if self.has_finish else "NULL AS finish"
         return self.conn.execute(
             f"SELECT skuId, condition, language, printing, {finish} "
-            "FROM tcgplayerSkus WHERE uuid = ?",
+            f"FROM {self.sku_table} WHERE uuid = ?",
             (uuid,),
         ).fetchall()
 
@@ -271,7 +379,7 @@ def main():
     if not manabox_path or not manabox_path.exists():
         sys.exit("No ManaBox CSV found. Pass its path, or run from the folder that contains it.")
 
-    db = CardDatabase(ensure_database(Path(args.data_dir), args.refresh))
+    db = CardDatabase(Path(args.data_dir), args.refresh)
     prices = load_prices(args.prices) if args.prices else {}
 
     merged = {}
