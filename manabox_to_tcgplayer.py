@@ -332,16 +332,13 @@ def price_or_blank(value):
         return ""
 
 
-def build_output_row(sku, card, condition, foil, quantity, manabox_row, price_row):
-    condition_text = condition + (" Foil" if foil != "normal" else "")
+def build_output_row(sku, quantity, manabox_row, price_row):
+    # Product details are left blank so TCGplayer identifies the card by its Id alone:
+    # MTGJSON's names differ from TCGplayer's for basic lands ("Island (258)"),
+    # two-name cards and special printings, and TCGplayer rejects mismatched rows.
     out = {
         "TCGplayer Id": str(sku["skuId"]),
         "Product Line": PRODUCT_LINE,
-        "Set Name": card["setName"] or "",
-        "Product Name": card["name"],
-        "Number": card["number"],
-        "Rarity": (card["rarity"] or "").title(),
-        "Condition": condition_text,
         "Add to Quantity": quantity,
     }
     if price_row:
@@ -398,10 +395,7 @@ def main():
             if sku_id in merged:
                 merged[sku_id]["Add to Quantity"] += quantity
                 continue
-            foil = row.get("Foil", "normal").strip().lower() or "normal"
-            merged[sku_id] = build_output_row(
-                sku, card, condition, foil, quantity, row, prices.get(sku_id)
-            )
+            merged[sku_id] = build_output_row(sku, quantity, row, prices.get(sku_id))
 
     write_csv(args.output, OUTPUT_FIELDS, merged.values())
     print(f"Matched {sum(r['Add to Quantity'] for r in merged.values())} cards "

@@ -61,9 +61,11 @@ This converter matches every ManaBox card by its Scryfall ID instead of by name,
     The first run downloads MTGJSON's card database and TCGplayer SKU file (several hundred MB) into `mtgjson_data/`. Later runs reuse it; add `--refresh` after a new set comes out.
 3. Upload `tcgplayer_upload.csv` to TCGplayer. Rows that couldn't be matched go to `tcgplayer_not_found.csv` with the reason.
 
+    The upload file leaves Set Name, Product Name, Number, Rarity and Condition blank, so TCGplayer identifies each card by its TCGplayer Id. MTGJSON's card names don't always match TCGplayer's (for example basic lands, two-name cards and showcase printings), and TCGplayer rejects rows whose names don't match.
+
 Options:
 
-* `--prices your_tcgplayer_export.csv` fills in TCGplayer's market prices and product names for matched cards. Without it, the price is ManaBox's purchase price.
+* `--prices your_tcgplayer_export.csv` fills in TCGplayer's own market prices and product details for matched cards. Without it, the price is ManaBox's purchase price.
 * Pass the ManaBox file's path if it isn't the only ManaBox CSV in the folder.
 
 ManaBox grades like Cardmarket, so conditions are mapped as: Mint and Near Mint to Near Mint, Excellent to Lightly Played, Good and Light Played to Moderately Played, Played to Heavily Played, Poor to Damaged. Change `CONDITION_MAP` at the top of the script if you grade differently.
