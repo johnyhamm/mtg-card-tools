@@ -70,6 +70,16 @@ Options:
 
 ManaBox grades like Cardmarket, so conditions are mapped as: Mint and Near Mint to Near Mint, Excellent to Lightly Played, Good and Light Played to Moderately Played, Played to Heavily Played, Poor to Damaged. Change `CONDITION_MAP` at the top of the script if you grade differently.
 
+#### `add_card_colors.py`
+
+Adds a `Color` column (for example `White/Blue`, or `Colorless`) next to Product Name in any TCGplayer pricing or inventory export. It uses the same `mtgjson_data/` folder as `manabox_to_tcgplayer.py`, so keep the two scripts together.
+
+```bash
+python add_card_colors.py your_tcgplayer_export.csv
+```
+
+The result is saved as `your_tcgplayer_export_with_colors.csv`, and the original file isn't changed. Rows that aren't Magic cards, or can't be found, get a blank color.
+
 #### `convert_manabox_to_tcgplayer.py` / `run_converter.py`
 
 This script converts a CSV export from Manabox to a TCGplayer-compatible format.
